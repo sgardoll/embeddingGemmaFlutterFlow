@@ -8,6 +8,17 @@ This library enables **on-device text embeddings** using Google's Gemma model fo
 
 ---
 
+## Get the exported source
+
+```bash
+git clone https://github.com/sgardoll/embeddingGemmaFlutterFlow.git
+cd embeddingGemmaFlutterFlow
+```
+
+This checkout contains the exported Flutter app and custom code. Cloning it does not import a library into the FlutterFlow editor. No verified FlutterFlow library share link or Marketplace listing is supplied here; the setup below uses the exported source.
+
+---
+
 ## Architecture Flowchart
 
 ```mermaid
