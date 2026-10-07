@@ -223,7 +223,7 @@ findTopMatches(query, documents, topK, threshold) → List<VectorDocumentStruct>
 |-----------|------|----------|-------------|
 | `query` | String | Yes | Search query text |
 | `documents` | List&lt;VectorDocumentStruct&gt; | Yes | Documents to search through |
-| `topK` | int | No | Number of results (default: 5) |
+| `topK` | int? | Yes | Pass a number, or `null` to use `5`; all four positional arguments are required |
 | `threshold` | double | Yes | Minimum cosine similarity; the exported demo passes `0.7` |
 
 | Returns | Description |
