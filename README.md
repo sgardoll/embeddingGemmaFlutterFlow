@@ -8,14 +8,52 @@ This library enables **on-device text embeddings** using Google's Gemma model fo
 
 ---
 
+## Get the exported source
+
+```bash
+git clone https://github.com/sgardoll/embeddingGemmaFlutterFlow.git
+cd embeddingGemmaFlutterFlow
+```
+
+This checkout contains the exported Flutter app and custom code. Cloning it does not import a library into the FlutterFlow editor. No verified FlutterFlow library share link or Marketplace listing is supplied here; the setup below uses the exported source.
+
+### Prerequisites and platform limits
+
+- Install a [Flutter SDK](https://docs.flutter.dev/install) whose bundled Dart satisfies the `>=3.0.0 <4.0.0` constraint in [pubspec.yaml](pubspec.yaml).
+- The export has Android and iOS project folders. [Android configuration](android/app/build.gradle) sets compile, target and minimum SDK to **36**; [iOS configuration](ios/Podfile) targets **16.0.0**. Set up the [Android toolchain](https://docs.flutter.dev/platform-integration/android/setup), or [Xcode/iOS toolchain on macOS](https://docs.flutter.dev/platform-integration/ios/setup), for the target you intend to investigate. These are source settings, not device compatibility results.
+- `flutter_gemma:` is blank/unpinned in the manifest and no `pubspec.lock` is committed. Review the [plugin author's current instructions](https://pub.dev/packages/flutter_gemma) against this export before resolving dependencies. On 7 October 2026, the package page marks `flutter_gemma` discontinued and points to `flutter_edge_ai`; this export still uses the old package and calls `FlutterGemma.initialize()` without arguments. No compatible package version, migration or successful build is established here.
+- A `web/` folder is present, but [SQLiteManager.initialize()](lib/backend/sqlite/sqlite_manager.dart) returns early on web without initializing its database. Desktop initialization code is present in [sqfliteFfiInit](lib/custom_code/actions/sqflite_ffi_init.dart), but no desktop project folders are supplied. Neither establishes a working web or desktop embedding demo.
+
+### Inspect and configure the exported demo
+
+1. Review [lib/main.dart](lib/main.dart). It initializes the Flutter binding, calls `sqfliteFfiInit()` and then `initializeGemma()` before SQLite initialization and `runApp`. Keep this startup ordering; Gemma must be initialized before downloading or embedding.
+2. Set `modelUrl` and `tokenizerUrl` in [lib/library_values.dart](lib/library_values.dart) to a matching embedding model and tokenizer you can access. The checked-in values use Gecko's `.tflite` and `sentencepiece.model` URLs shown below. Model files are downloaded at runtime, not bundled by this guide; network access and local storage are needed for installation. Endpoint availability and device execution have not been verified.
+3. Inspect [StartDownload](lib/demo/start_download/start_download_widget.dart), the initial page selected by [the router](lib/flutter_flow/nav/nav.dart). It passes both URLs to `downloadEmbeddingModel` and stores the returned string in `downloadResult`, then navigates **without checking for `"Success"`**. Reaching the next page does not prove installation succeeded. When wiring these actions into your own app, handle `"Error: ..."` and continue only after `"Success"`.
+4. The action order is `initializeGemma()` → `downloadEmbeddingModel(modelUrl, tokenizerUrl)` → `processDocumentsToVectors(List<String>)` → `saveVectorsToDb(List<VectorDocumentStruct>)`. Search consumes vectors in memory with `findTopMatches(query, documents, topK, threshold)`; the exported search page passes `5` and `0.7` for the last two arguments. **Persistence has a source gap:** [saveVectorsToDb](lib/custom_code/actions/save_vectors_to_db.dart) currently writes to an empty SQL table name (`INSERT OR REPLACE INTO ""`), not the documented `embeddings` table. A working end-to-end save/search workflow is not established by this checkout.
+
+After checking dependency compatibility and addressing any source gaps in your own work, Flutter's [CLI](https://docs.flutter.dev/reference/flutter-cli) provides the following local setup/run commands from the clone directory. Replace `DEVICE_ID` with the Android or iOS target listed by `flutter devices`:
+
+```bash
+flutter pub get
+flutter devices
+flutter run -d DEVICE_ID
+```
+
+These commands describe an attempted exported-app run, not a verified build. If resolution, initialization or saving fails, retain the error and report it in a repository issue; do not treat the action diagrams as proof of execution. This guide does not supply a FlutterFlow editor import route or a dependency/source repair.
+
+---
+
 ## Architecture Flowchart
+
+The diagrams illustrate action wiring after initialization. They do not describe the exported demo's download error handling or establish that its persistence path works; see the source gaps above.
 
 ```mermaid
 flowchart TB
     subgraph "SETUP PHASE (One-time)"
-        A[App Start] --> B{Model Downloaded?}
+        A[App Start] --> INIT[initializeGemma]
+        INIT --> B{Model Downloaded?}
         B -->|No| C[downloadEmbeddingModel]
-        C -->|"url: model URL"| D[Model Downloaded to Device]
+        C -->|"modelUrl and tokenizerUrl"| D[Model Downloaded to Device]
         B -->|Yes| E[Ready]
         D --> E
     end
@@ -57,11 +95,15 @@ flowchart TB
 | `vector` | List&lt;double&gt; | Embedding vector (768 dimensions for Gemma) |
 | `metadata` | String | Optional metadata (e.g., source, category) |
 
-**Imported automatically in FlutterFlow Library** 
+The type is included in [the exported source](lib/backend/schema/structs/vector_document_struct.dart). Automatic import into the FlutterFlow editor is not established by cloning this repository.
 
 ---
 
 ### Custom Actions
+
+#### `initializeGemma` (startup prerequisite)
+
+`initializeGemma()` takes no arguments and awaits `FlutterGemma.initialize()`; it has no result string or local error handler. The exported `main.dart` already awaits it before `runApp`. For your own action wiring, await it once at startup before any other Gemma operation, including the setup chains below.
 
 #### 1. `downloadEmbeddingModel`
 
@@ -174,20 +216,21 @@ saveVectorsToDb(vectors) → void
 **Purpose:** Searches for the most similar documents to a query using cosine similarity.
 
 ```
-findTopMatches(query, documents, topK) → List<VectorDocumentStruct>
+findTopMatches(query, documents, topK, threshold) → List<VectorDocumentStruct>
 ```
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `query` | String | Yes | Search query text |
 | `documents` | List&lt;VectorDocumentStruct&gt; | Yes | Documents to search through |
-| `topK` | int | No | Number of results (default: 5) |
+| `topK` | int? | Yes | Pass a number, or `null` to use `5`; all four positional arguments are required |
+| `threshold` | double | Yes | Minimum cosine similarity; the exported demo passes `0.7` |
 
 | Returns | Description |
 |---------|-------------|
 | `List<VectorDocumentStruct>` | Top K most similar documents, ranked by similarity |
 
-**FlutterFlow Usage:**
+**FlutterFlow Usage:** Supply the required `threshold` argument as well as the values illustrated below.
 ```
 ┌─────────────────────────────────────────────────┐
 │ Action: findTopMatches                           │
@@ -246,6 +289,8 @@ findTopMatches(query, documents, topK) → List<VectorDocumentStruct>
 
 ### Flow 1: Initial Setup (App First Launch)
 
+This is intended wiring: initialize Gemma first, then supply both model and tokenizer URLs. The exported StartDownload page currently lacks this success/error branch.
+
 ```mermaid
 sequenceDiagram
     participant User
@@ -257,7 +302,7 @@ sequenceDiagram
     App->>App: Check if model exists
     alt Model not found
         App->>User: Show "Downloading Model..." screen
-        App->>downloadEmbeddingModel: Call with model URL
+        App->>downloadEmbeddingModel: Call with model and tokenizer URLs
         downloadEmbeddingModel->>Device Storage: Download ~300MB model
         Device Storage-->>downloadEmbeddingModel: Success
         downloadEmbeddingModel-->>App: "Success"
@@ -325,6 +370,8 @@ sequenceDiagram
 ## FlutterFlow Action Chains
 
 ### Chain 1: Setup Flow
+
+`initializeGemma()` must already have completed at app startup before this page-load chain runs.
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -451,6 +498,8 @@ Instead of chaining `processDocumentsToVectors` + `saveVectorsToDb`, use the wid
 
 ## Database Schema
 
+This is the documented storage layout. The current `saveVectorsToDb` action targets an empty table name; the save route needs a source repair before these examples can be treated as a working persistence workflow.
+
 The SQLite database stores vectors in the `embeddings` table:
 
 | Column | Type | Description |
@@ -466,10 +515,11 @@ The SQLite database stores vectors in the `embeddings` table:
 
 | Task | Action/Widget | Input | Output |
 |------|---------------|-------|--------|
+| Initialize plugin | `initializeGemma` | None | Await completion before other Gemma actions |
 | Download model | `downloadEmbeddingModel` | modelUrl, tokenizerUrl | "Success" or "Error: ..." |
 | Convert text to vectors | `processDocumentsToVectors` | List&lt;String&gt; | List&lt;VectorDocumentStruct&gt; |
 | Save to database | `saveVectorsToDb` | List&lt;VectorDocumentStruct&gt; | void |
-| Search similar docs | `findTopMatches` | query, docs, topK | List&lt;VectorDocumentStruct&gt; |
+| Search similar docs | `findTopMatches` | query, docs, topK, threshold | List&lt;VectorDocumentStruct&gt; |
 | All-in-one UI | `GenerateEmbeddings` widget | documents, callbacks | Built-in UI |
 
 ---
